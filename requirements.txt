@@ -1,5 +1,5 @@
-Flask>=3.0,<4.0
-orthools>=9.10,<10.0
-openpyxl>=3.1,<4.0
-python-docx>=1.1,<2.0
-gunicorn>=22.0
+   Flask>=3.0,<4.0
+   ortools>=9.10,<10.0
+   openpyxl>=3.1,<4.0
+   python-docx>=1.1,<2.0
+   gunicorn>=22.0
