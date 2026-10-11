@@ -10,4 +10,5 @@ services:
         value: 3.11.9
       - key: SECRET_KEY
         generateValue: true
-      - fromGroup: Env
+      - key: DATABASE_URL
+        value: postgresql://neondb_owner:npg_6FxPTlNUzmf9@ep-summer-sun-b5esogrw-pooler.c-7.us-east-2.aws.neon.tech/neondb?sslmode=require&channel_binding=require
