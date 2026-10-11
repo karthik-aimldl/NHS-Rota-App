@@ -1,16 +1,179 @@
-{% macro rota_block(action, result, doctors) %}<section class="panel" id="filters"><h3>Filter the rota</h3><form method="get" action="{{action}}#rota-details" class="form searchform"><label>Search anything<input name="q" value="{{result.q}}" placeholder="doctor, date, shift, group"></label><label>Doctor<select name="doctor"><option value="">All doctors</option>{% for d in doctors %}<option value="{{d.id}}" {{'selected' if result.doctor==(d.id|string)}}>{{d.name}}{{' (archived)' if d.status!='Active'}}</option>{% endfor %}</select></label><label>Group<select name="group"><option value="">All groups</option><option {{'selected' if result.group=='Junior'}}>Junior</option><option {{'selected' if result.group=='Senior'}}>Senior</option></select></label><label>Shift<select name="shift"><option value="">All shifts</option><option value="SD" {{'selected' if result.shift=='SD'}}>SD – Short Day</option><option value="LD" {{'selected' if result.shift=='LD'}}>LD – Long Day</option><option value="LN" {{'selected' if result.shift=='LN'}}>LN – Long Night</option></select></label><label>Date from<input name="date_from" type="date" value="{{result.dfrom}}"></label><label>Date to (optional)<input name="date_to" type="date" value="{{result.dto}}"></label><div class="btnrow"><button class="btn">Apply filters</button>{% if result.filtered %}<a class="btn grey" href="{{action}}#rota-details">Clear</a>{% endif %}</div></form></section>
+{# ---------- reusable pieces ---------- #}
+{% macro org_selects(trust, dept, trust_blank='All trusts', dept_blank='All departments') %}
+<label>Hospital Trust
+  <select name="trust"><option value="">{{trust_blank}}</option>
+  {% for t in trusts %}<option value="{{t.id}}" {{'selected' if trust==(t.id|string)}}>{{t.name}}</option>{% endfor %}</select></label>
+<label>Department
+  <select name="dept"><option value="" data-trust="">{{dept_blank}}</option>
+  {% for d in departments %}<option value="{{d.id}}" data-trust="{{d.trust_id}}" {{'selected' if dept==(d.id|string)}}>{{d.name}}</option>{% endfor %}</select></label>
+{% endmacro %}
+
+{% macro dept_picker(name, selected, blank='') %}
+<select name="{{name}}" {{'required' if not blank}}>
+  {% if blank %}<option value="">{{blank}}</option>{% endif %}
+  {% for t in trusts %}<optgroup label="{{t.name}}">
+    {% for d in t.departments %}<option value="{{d.id}}" {{'selected' if selected==(d.id|string)}}>{{d.name}}</option>{% endfor %}
+  </optgroup>{% endfor %}
+</select>
+{% endmacro %}
+
+{% macro month_select(months, selected, all_label='All months') %}
+<label>Month
+  <select name="month">{% if all_label %}<option value="">{{all_label}}</option>{% endif %}
+  {% for m in months %}<option value="{{m.key}}" {{'selected' if m.key==selected}}>{{m.label}}</option>{% endfor %}</select></label>
+{% endmacro %}
+
+{% macro rota_block(action, result, doctors) %}
+<section class="panel" id="filters"><h3>Filter the rota</h3>
+<form method="get" action="{{action}}#rota-details" class="form searchform">
+  <label>Search anything<input name="q" value="{{result.q}}" placeholder="doctor, date, shift, department"></label>
+  {{ org_selects(sel_trust, sel_dept) }}
+  <label>Doctor<select name="doctor"><option value="">All doctors</option>
+    {% for d in doctors %}<option value="{{d.id}}" {{'selected' if result.doctor==(d.id|string)}}>{{d.name}}{{' (archived)' if d.status!='Active'}}</option>{% endfor %}</select></label>
+  <label>Group<select name="group"><option value="">All groups</option>
+    <option {{'selected' if result.group=='Junior'}}>Junior</option><option {{'selected' if result.group=='Senior'}}>Senior</option></select></label>
+  <label>Shift<select name="shift"><option value="">All shifts</option>
+    <option value="SD" {{'selected' if result.shift=='SD'}}>SD – Short Day</option>
+    <option value="LD" {{'selected' if result.shift=='LD'}}>LD – Long Day</option>
+    <option value="LN" {{'selected' if result.shift=='LN'}}>LN – Long Night</option></select></label>
+  <label>Date from<input name="date_from" type="date" value="{{result.dfrom}}"></label>
+  <label>Date to (optional)<input name="date_to" type="date" value="{{result.dto}}"></label>
+  <div class="btnrow"><button class="btn">Apply filters</button>{% if result.filtered %}<a class="btn grey" href="{{action}}#rota-details">Clear</a>{% endif %}</div>
+</form></section>
+
 {% if result.on_leave %}<section class="panel"><h3>On leave in this period</h3><p>{{result.on_leave|join(', ')}}</p></section>{% endif %}
-{% if result.doctors %}<section class="panel"><h3>Doctor details ({{result.doctors|length}})</h3><div class="tablewrap"><table><tr><th>Name</th><th>Designation</th><th>Group</th><th>FTE</th><th>Status</th><th>Last working date</th><th>SD</th><th>LD</th><th>LN</th><th>Leave entries</th></tr>{% for d in result.doctors %}<tr><td>{{d.name}}</td><td>{{d.designation}}</td><td>{{d.rota_group}}</td><td>{{d.fte}}</td><td>{{d.status}}</td><td>{{d.last_working_date or '—'}}</td><td>{{d.SD}}</td><td>{{d.LD}}</td><td>{{d.LN}}</td><td>{{d.leave_entries}}</td></tr>{% endfor %}</table></div></section>{% endif %}
-<section class="panel" id="rota-details"><div class="row"><h3>Rota details ({{result.rota_total}}){% if result.truncated %} <small class="muted">showing first {{result.rota|length}}</small>{% endif %}</h3><a href="/export.csv">Export CSV ↓</a></div><p>SD Short Day · LD Long Day · LN Long Night</p>{% if result.rota %}<div class="tablewrap"><table><tr><th>Date</th><th>Shift</th><th>Doctor</th><th>Group</th></tr>{% for r in result.rota %}<tr><td>{{r.rota_date}}</td><td><b class="tag {{r.shift_code|lower}}">{{r.shift_code}}</b></td><td>{{r.name}}</td><td>{{r.rota_group}}</td></tr>{% endfor %}</table></div>{% elif result.filtered %}<p>No rota assignments match these filters.</p>{% else %}<p>No rota yet. Generate a draft above.</p>{% endif %}</section>
-{% if result.leaves %}<section class="panel"><h3>Leave ({{result.leaves|length}})</h3><div class="tablewrap"><table><tr><th>Doctor</th><th>Type</th><th>From</th><th>To</th></tr>{% for l in result.leaves %}<tr><td>{{l.name}}</td><td>{{l.leave_type}}</td><td>{{l.start_date}}</td><td>{{l.end_date}}</td></tr>{% endfor %}</table></div></section>{% endif %}{% endmacro %}
-<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>NHS Rota Optimiser</title><link rel="stylesheet" href="{{url_for('static',filename='style.css')}}"></head><body><aside><h2>✚ Rota Optimiser</h2><small>NHS workforce planning</small><nav><a href="/">Dashboard</a><a href="/doctors">Doctors</a><a href="/leave">Leave</a><a href="/generate">Generate</a><a href="/rota">Rota</a><a href="/summary">Summary</a><a href="/quality">Quality</a></nav><p class="warning">Prototype only. Not for live clinical use.</p></aside><main><header><div><small>WORKFORCE PLANNING</small><h1>{{page}}</h1></div><a class="btn" href="/generate">＋ Generate rota</a></header>{% for m in get_flashed_messages() %}<p class="flash">{{m}}</p>{% endfor %}
-{% if page=='Dashboard' %}<section class="hero"><div><small>ROTA OVERVIEW</small><h2>Plan safer. Balance fairly.</h2><p>Build a draft rota, review coverage and identify issues before operational decisions.</p><a class="btn white" href="/generate">Start planning →</a></div><div class="symbol">✚</div></section><div class="cards"><article><span>Active doctors</span><b>{{doctors|selectattr('status','equalto','Active')|list|length}}</b></article><article><span>Assignments</span><b>{{rota|length}}</b></article><article><span>Dates covered</span><b>{{rota|map(attribute='rota_date')|unique|list|length}}</b></article><article><span>Leave entries</span><b>{{leaves|length}}</b></article></div><section class="panel"><div class="row"><h3>Shifts per doctor</h3>{% if months %}<form method="get" action="/" class="inline"><label class="muted">Month <select name="month" onchange="this.form.submit()"><option value="">All months</option>{% for m in months %}<option value="{{m.key}}" {{'selected' if m.key==selected_month}}>{{m.label}}</option>{% endfor %}</select></label></form>{% endif %}</div>{% if rota %}<div class="charts">{% for ch in charts %}<div class="chart"><h4>{{ch.title}} ({{ch.code}})</h4><div class="tot">{{ch.total}} shifts in total</div>{% for i in ch.bars %}<div class="barrow" title="{{i.name}}: {{i.count}}"><span>{{i.name}}</span><div class="track"><div class="fill {{ch.code|lower}}" style="width:{{i.pct}}%"></div></div><b>{{i.count}}</b></div>{% endfor %}</div>{% endfor %}</div>{% else %}<p>No rota yet. <a href="/generate">Generate a draft</a> to see each doctor's shifts.</p>{% endif %}</section>
-<section class="panel"><h3>Getting started</h3><p>1. Confirm Junior/Senior groups in Doctors. 2. Record leave. 3. Generate a 4- or 8-week draft. 4. Review Quality and all assignments.</p></section>
-{% elif page=='Doctors' %}<section class="panel"><h3>Add a doctor</h3><form method="post" action="/doctors" class="form"><label>Name<input name="name" required></label><label>Designation<input name="designation" value="Doctor"></label><label>Rota group<select name="rota_group"><option>Junior</option><option>Senior</option></select></label><label>FTE<input name="fte" type="number" min="0.1" max="1.5" step="0.1" value="1"></label><label>Last working date<input name="last_working_date" type="date"></label><label>Status<select name="status"><option>Active</option><option>Inactive</option></select></label><button class="btn">Add doctor</button></form></section><section class="panel"><h3>Doctor register</h3><p class="muted">Archive keeps a doctor's history but leaves them out of new rotas. Delete removes them completely.</p><div class="tablewrap"><table><tr><th>Name</th><th>Group</th><th>FTE</th><th>Last working date</th><th>Status</th><th>Actions</th></tr>{% for d in doctors %}<tr class="{{'inactive' if d.status!='Active'}}"><td>{{d.name}}</td><td>{{d.rota_group}}</td><td>{{d.fte}}</td><td>{{d.last_working_date or '—'}}</td><td>{{'Active' if d.status=='Active' else 'Archived'}}</td><td class="actions"><form method="post" action="/doctors/{{d.id}}/archive"><button class="mini">{{'Archive' if d.status=='Active' else 'Reactivate'}}</button></form><form method="post" action="/doctors/{{d.id}}/delete" onsubmit='return confirm({{ ("Delete "~d.name~" permanently? This also removes their leave and rota assignments. Use Archive instead to keep history.")|tojson }})'><button class="mini danger">Delete</button></form></td></tr>{% endfor %}</table></div></section>
-{% elif page=='Leave' %}<section class="panel"><h3>Add leave</h3><form method="post" action="/leave" class="form"><label>Doctor<select name="doctor_id">{% for d in doctors if d.status=='Active' %}<option value="{{d.id}}">{{d.name}} — {{d.rota_group}}</option>{% endfor %}</select></label><label>Type<select name="leave_type"><option>Annual Leave</option><option>Planned Leave</option></select></label><label>From<input name="start_date" type="date" required></label><label>To<input name="end_date" type="date" required></label><button class="btn">Save leave</button></form></section><section class="panel"><h3>Leave register</h3><table><tr><th>Doctor</th><th>Type</th><th>From</th><th>To</th><th></th></tr>{% for l in leaves %}<tr><td>{{l.name}}</td><td>{{l.leave_type}}</td><td>{{l.start_date}}</td><td>{{l.end_date}}</td><td class="actions"><form method="post" action="/leave/{{l.id}}/delete" onsubmit="return confirm('Remove this leave entry?')"><button class="mini danger">Remove</button></form></td></tr>{% endfor %}</table></section>
-{% elif page=='Generate' %}<section class="panel"><h3>Generate a draft rota</h3><p>SD 08:30–17:30 · LD 08:30–20:30 · LN 20:30–08:30. Each shift requires at least one Junior and one Senior, maximum four.</p><form method="post" action="/generate" class="form"><label>Start date<input name="start_date" type="date" value="{{today}}" required></label><label>Period<select name="weeks"><option value="4">4 weeks</option><option value="8">8 weeks</option></select></label><button class="btn">Generate draft →</button></form><p class="muted">Existing assignments inside the selected date range are replaced. Review the output; this is a prototype solver.</p></section>
+
+{% if result.doctors %}<section class="panel"><h3>Doctor details ({{result.doctors|length}})</h3><div class="tablewrap"><table>
+<tr><th>Name</th><th>Trust</th><th>Department</th><th>Designation</th><th>Group</th><th>FTE</th><th>Status</th><th>Last working date</th><th>SD</th><th>LD</th><th>LN</th><th>Leave entries</th></tr>
+{% for d in result.doctors %}<tr><td>{{d.name}}</td><td>{{d.trust}}</td><td>{{d.department}}</td><td>{{d.designation}}</td><td>{{d.rota_group}}</td><td>{{d.fte}}</td><td>{{d.status}}</td><td>{{d.last_working_date or '—'}}</td><td>{{d.SD}}</td><td>{{d.LD}}</td><td>{{d.LN}}</td><td>{{d.leave_entries}}</td></tr>{% endfor %}
+</table></div></section>{% endif %}
+
+<section class="panel" id="rota-details">
+  <div class="row"><h3>Rota details ({{result.rota_total}}){% if result.truncated %} <small class="muted">showing first {{max_results}}</small>{% endif %}</h3>
+  <span><a href="/matrix">Matrix view →</a> &nbsp; <a href="/export.csv">Export CSV ↓</a></span></div>
+  <p>SD Short Day · LD Long Day · LN Long Night</p>
+  {% for g in result.groups %}
+  <h4 class="orghead">{{g.trust}} <span>›</span> {{g.department}} <small>({{g.rows|length}})</small></h4>
+  <div class="tablewrap"><table><tr><th>Date</th><th>Shift</th><th>Doctor</th><th>Group</th></tr>
+  {% for r in g.rows %}<tr><td>{{r.rota_date}}</td><td><b class="tag {{r.shift_code|lower}}">{{r.shift_code}}</b></td><td>{{r.name}}</td><td>{{r.rota_group}}</td></tr>{% endfor %}</table></div>
+  {% else %}
+  {% if result.filtered %}<p>No rota assignments match these filters.</p>{% else %}<p>No rota yet. Generate a draft above.</p>{% endif %}
+  {% endfor %}
+</section>
+
+{% if result.leaves %}<section class="panel"><h3>Leave ({{result.leaves|length}})</h3><div class="tablewrap"><table>
+<tr><th>Doctor</th><th>Department</th><th>Type</th><th>From</th><th>To</th></tr>
+{% for l in result.leaves %}<tr><td>{{l.name}}</td><td>{{l.department}}</td><td>{{l.leave_type}}</td><td>{{l.start_date}}</td><td>{{l.end_date}}</td></tr>{% endfor %}
+</table></div></section>{% endif %}
+{% endmacro %}
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>NHS Rota Optimiser</title>
+<link rel="stylesheet" href="{{url_for('static',filename='style.css')}}"></head><body>
+<aside><h2>✚ Rota Optimiser</h2><small>NHS workforce planning</small>
+<nav><a href="/">Dashboard</a><a href="/organisation">Organisation</a><a href="/doctors">Doctors</a><a href="/leave">Leave</a><a href="/generate">Generate</a><a href="/rota">Rota</a><a href="/matrix">Matrix</a><a href="/summary">Summary</a><a href="/quality">Quality</a></nav>
+<p class="warning">Prototype only. Not for live clinical use.</p></aside>
+<main><header><div><small>WORKFORCE PLANNING</small><h1>{{title}}</h1></div><a class="btn" href="/generate">＋ Generate rota</a></header>
+{% for m in get_flashed_messages() %}<p class="flash">{{m}}</p>{% endfor %}
+
+{% if page=='Dashboard' %}
+<section class="hero"><div><small>ROTA OVERVIEW</small><h2>Plan safer. Balance fairly.</h2><p>Build a draft rota, review coverage and identify issues before operational decisions.</p><a class="btn white" href="/generate">Start planning →</a></div><div class="symbol">✚</div></section>
+<div class="cards"><article><span>Active doctors</span><b>{{doctors|selectattr('status','equalto','Active')|list|length}}</b></article><article><span>Assignments</span><b>{{rota|length}}</b></article><article><span>Dates covered</span><b>{{rota|map(attribute='rota_date')|unique|list|length}}</b></article><article><span>Leave entries</span><b>{{leaves|length}}</b></article></div>
+<section class="panel"><h3>Shifts per doctor</h3>
+<form method="get" action="/" class="form searchform" data-autosubmit>{{ org_selects(sel_trust, sel_dept) }}{{ month_select(months, selected_month) }}</form>
+{% if rota %}<div class="charts">{% for ch in charts %}<div class="chart"><h4>{{ch.title}} ({{ch.code}})</h4><div class="tot">{{ch.total}} shifts in total</div>
+{% for i in ch.bars %}<div class="barrow" title="{{i.name}}: {{i.count}}"><span>{{i.name}}</span><div class="track"><div class="fill {{ch.code|lower}}" style="width:{{i.pct}}%"></div></div><b>{{i.count}}</b></div>{% endfor %}</div>{% endfor %}</div>
+{% else %}<p>No rota yet. <a href="/generate">Generate a draft</a> to see each doctor's shifts.</p>{% endif %}</section>
+<section class="panel"><h3>Getting started</h3><p>1. Add your Hospital Trust and Department under Organisation. 2. Add doctors to a department and record leave. 3. Generate a 4- or 8-week draft. 4. Review the Rota, Matrix, Summary and Quality pages.</p></section>
+
+{% elif page=='Organisation' %}
+<section class="panel"><h3>Add a Hospital Trust</h3><form method="post" action="/organisation/trust" class="form"><label>Trust name<input name="name" required placeholder="e.g. Example NHS Foundation Trust"></label><button class="btn">Add trust</button></form></section>
+<section class="panel"><h3>Add a Department</h3><form method="post" action="/organisation/department" class="form"><label>Hospital Trust<select name="trust_id" required>{% for t in trusts %}<option value="{{t.id}}">{{t.name}}</option>{% endfor %}</select></label><label>Department name<input name="name" required placeholder="e.g. Emergency Medicine"></label><button class="btn">Add department</button></form></section>
+{% for t in trusts %}<section class="panel"><div class="row"><h3>{{t.name}}</h3>
+<form method="post" action="/organisation/trust/{{t.id}}/delete" onsubmit="return confirm('Delete this trust? It must have no departments.')"><button class="mini danger">Delete trust</button></form></div>
+{% if t.departments %}<div class="tablewrap"><table><tr><th>Department</th><th>Doctors</th><th></th></tr>
+{% for d in t.departments %}<tr><td>{{d.name}}</td><td>{{d.doctor_count}}</td><td class="actions"><form method="post" action="/organisation/department/{{d.id}}/delete" onsubmit="return confirm('Delete this department? It must have no doctors.')"><button class="mini danger">Delete</button></form></td></tr>{% endfor %}</table></div>
+{% else %}<p class="muted">No departments yet.</p>{% endif %}</section>{% else %}<section class="panel"><p>No trusts yet. Add one above.</p></section>{% endfor %}
+
+{% elif page=='Doctors' %}
+<section class="panel"><h3>Add a doctor</h3><form method="post" action="/doctors" class="form">
+<label>Name<input name="name" required></label><label>Designation<input name="designation" value="Doctor"></label>
+<label>Department{{ dept_picker('department_id', '') }}</label>
+<label>Rota group<select name="rota_group"><option>Junior</option><option>Senior</option></select></label>
+<label>FTE<input name="fte" type="number" min="0.1" max="1.5" step="0.1" value="1"></label>
+<label>Last working date<input name="last_working_date" type="date"></label>
+<label>Status<select name="status"><option>Active</option><option>Inactive</option></select></label>
+<button class="btn">Add doctor</button></form></section>
+<section class="panel"><h3>Doctor register</h3>
+<form method="get" action="/doctors" class="form searchform" data-autosubmit>{{ org_selects(sel_trust, sel_dept) }}</form>
+<p class="muted">Archive keeps a doctor's history but leaves them out of new rotas. Delete removes them completely.</p>
+<div class="tablewrap"><table><tr><th>Name</th><th>Trust</th><th>Department</th><th>Group</th><th>FTE</th><th>Last working date</th><th>Status</th><th>Actions</th></tr>
+{% for d in doctors %}<tr class="{{'inactive' if d.status!='Active'}}"><td>{{d.name}}</td><td>{{d.trust}}</td><td>{{d.department}}</td><td>{{d.rota_group}}</td><td>{{d.fte}}</td><td>{{d.last_working_date or '—'}}</td><td>{{'Active' if d.status=='Active' else 'Archived'}}</td>
+<td class="actions"><form method="post" action="/doctors/{{d.id}}/archive"><button class="mini">{{'Archive' if d.status=='Active' else 'Reactivate'}}</button></form>
+<form method="post" action="/doctors/{{d.id}}/delete" onsubmit='return confirm({{ ("Delete "~d.name~" permanently? This also removes their leave and rota assignments. Use Archive instead to keep history.")|tojson }})'><button class="mini danger">Delete</button></form>
+<form method="post" action="/doctors/{{d.id}}/move" class="moveform">{{ dept_picker('department_id', d.department_id|string) }}<button class="mini">Move</button></form></td></tr>{% endfor %}
+</table></div></section>
+
+{% elif page=='Leave' %}
+<section class="panel"><h3>Add leave</h3><form method="post" action="/leave" class="form"><label>Doctor<select name="doctor_id">{% for d in doctors if d.status=='Active' %}<option value="{{d.id}}">{{d.name}} — {{d.rota_group}} — {{d.department}}</option>{% endfor %}</select></label><label>Type<select name="leave_type"><option>Annual Leave</option><option>Planned Leave</option></select></label><label>From<input name="start_date" type="date" required></label><label>To<input name="end_date" type="date" required></label><button class="btn">Save leave</button></form></section>
+<section class="panel"><h3>Leave register</h3><div class="tablewrap"><table><tr><th>Doctor</th><th>Department</th><th>Type</th><th>From</th><th>To</th><th></th></tr>
+{% for l in leaves %}<tr><td>{{l.name}}</td><td>{{l.department}}</td><td>{{l.leave_type}}</td><td>{{l.start_date}}</td><td>{{l.end_date}}</td><td class="actions"><form method="post" action="/leave/{{l.id}}/delete" onsubmit="return confirm('Remove this leave entry?')"><button class="mini danger">Remove</button></form></td></tr>{% endfor %}</table></div></section>
+
+{% elif page=='Generate' %}
+<section class="panel"><h3>Generate a draft rota</h3>
+<p>SD 08:30–17:30 · LD 08:30–20:30 · LN 20:30–08:30. Each shift requires at least one Junior and one Senior, maximum four. Shifts are shared as evenly as possible between doctors in the same group, and after a Long Night only another Long Night or a day off is allowed.</p>
+<form method="post" action="/generate" class="form">
+{{ org_selects(sel_trust, sel_dept, 'All trusts', 'All departments in the trust') }}
+<label>Start date<input name="start_date" type="date" value="{{today}}" required></label>
+<label>Period<select name="weeks"><option value="4">4 weeks</option><option value="8">8 weeks</option></select></label>
+<button class="btn">Generate draft →</button></form>
+<p class="muted">Choose a department to generate one rota, or leave Department blank to generate a rota for every department in the selected trust (or in all trusts). Each generation takes up to about 12 seconds per department. Existing assignments for that department inside the date range are replaced.</p></section>
 {{ rota_block('/generate', result, doctors) }}
-{% elif page=='Rota' %}{{ rota_block('/rota', result, doctors) }}
-{% elif page=='Summary' %}<section class="panel"><div class="row"><h3>Monthly shifts per doctor</h3><a href="/summary.csv">Export CSV ↓</a></div><p class="muted">SD Short Day · LD Long Day · LN Long Night. Counts are from the saved rota, by calendar month.</p>{% if months %}<form method="get" action="/summary" class="form searchform"><label>Month<select name="month" onchange="this.form.submit()"><option value="">All months</option>{% for m in months %}<option value="{{m.key}}" {{'selected' if m.key==selected_month}}>{{m.label}}</option>{% endfor %}</select></label></form>{% endif %}</section>
-{% for s in summary %}<section class="panel"><h3>{{s.label}}</h3><div class="tablewrap"><table><tr><th>Doctor</th><th>Group</th><th>Short days (SD)</th><th>Long days (LD)</th><th>Long nights (LN)</th><th>Total shifts</th></tr>{% for r in s.rows %}<tr><td>{{r.name}}</td><td>{{r.group}}</td><td>{{r.SD}}</td><td>{{r.LD}}</td><td>{{r.LN}}</td><td><b>{{r.total}}</b></td></tr>{% endfor %}<tr class="totalrow"><td><b>All doctors</b></td><td></td><td><b>{{s.rows|sum(attribute='SD')}}</b></td><td><b>{{s.rows|sum(attribute='LD')}}</b></td><td><b>{{s.rows|sum(attribute='LN')}}</b></td><td><b>{{s.rows|sum(attribute='total')}}</b></td></tr></table></div></section>{% else %}<section class="panel"><p>No rota yet. <a href="/generate">Generate a draft</a> to see monthly totals.</p></section>{% endfor %}
-{% elif page=='Quality' %}<section class="hero"><div><small>QUALITY REVIEW</small><h2>Check before you act.</h2><p>Basic checks only — not a compliance certificate.</p></div><div class="symbol">✓</div></section><section class="panel"><h3>Findings</h3><ul>{% for i in issues %}<li>{{i}}</li>{% endfor %}</ul></section><section class="panel"><h3>Known gaps</h3><p>The exact rolling limit of 3 LD in any 5 working shifts, all LD-to-SD transitions, prior-rota continuity, swaps, locked shifts, audit trail and full fairness reporting are not fully implemented. Do not use this as the sole basis for clinical staffing decisions.</p></section>{% endif %}<footer>Rule-driven planning prototype · Storage: {{storage}} · Governance review required</footer></main></body></html>
+
+{% elif page=='Rota' %}
+{{ rota_block('/rota', result, doctors) }}
+
+{% elif page=='Matrix' %}
+<section class="panel"><h3>Rota matrix</h3><p class="muted">Rows are dates, columns are doctors. SD Short Day · LD Long Day · LN Long Night · L = leave. Totals for the month are at the bottom.</p>
+<form method="get" action="/matrix" class="form searchform" data-autosubmit><label>Department{{ dept_picker('dept', sel_dept) }}</label>{{ month_select(months, selected_month, '') }}</form></section>
+{% if matrix %}<section class="panel"><h3>{{matrix.label}}</h3><div class="mwrap"><table class="matrix"><thead>
+<tr><th class="stick" rowspan="2">Date</th>{% for g in matrix.groups %}<th class="gh" colspan="{{g.span}}">{{g.name}}</th>{% endfor %}</tr>
+<tr>{% for d in matrix.cols %}<th title="{{d.name}}">{{d.name}}</th>{% endfor %}</tr></thead><tbody>
+{% for r in matrix.rows %}<tr class="{{'we' if r.weekend}}"><td class="stick">{{r.date[8:]}} {{r.dow}}</td>
+{% for c in r.cells %}<td>{% if c.code %}<b class="tag {{c.code|lower}}">{{c.code}}</b>{% elif c.leave %}<span class="leave" title="{{c.leave}}">L</span>{% endif %}</td>{% endfor %}</tr>{% endfor %}</tbody>
+<tfoot>{% for code, lab in [('SD','SD total'),('LD','LD total'),('LN','LN total'),('ALL','All shifts')] %}<tr><td class="stick">{{lab}}</td>{% for n in matrix.totals[code] %}<td>{{n}}</td>{% endfor %}</tr>{% endfor %}</tfoot>
+</table></div></section>
+{% else %}<section class="panel"><p>No rota for this department yet. <a href="/generate">Generate a draft</a> first.</p></section>{% endif %}
+
+{% elif page=='Summary' %}
+<section class="panel"><div class="row"><h3>Monthly shifts per doctor</h3><a href="/summary.csv?trust={{sel_trust}}&dept={{sel_dept}}">Export CSV ↓</a></div>
+<p class="muted">SD Short Day · LD Long Day · LN Long Night. Counts are from the saved rota, by calendar month.</p>
+<form method="get" action="/summary" class="form searchform" data-autosubmit>{{ org_selects(sel_trust, sel_dept) }}{{ month_select(months, selected_month) }}</form></section>
+{% for s in summary %}<section class="panel"><h3>{{s.label}}</h3><div class="tablewrap"><table>
+<tr><th>Doctor</th><th>Trust</th><th>Department</th><th>Group</th><th>Short days (SD)</th><th>Long days (LD)</th><th>Long nights (LN)</th><th>Total shifts</th></tr>
+{% for r in s.rows %}<tr><td>{{r.name}}</td><td>{{r.trust}}</td><td>{{r.department}}</td><td>{{r.group}}</td><td>{{r.SD}}</td><td>{{r.LD}}</td><td>{{r.LN}}</td><td><b>{{r.total}}</b></td></tr>{% endfor %}
+<tr class="totalrow"><td><b>All doctors</b></td><td></td><td></td><td></td><td><b>{{s.rows|sum(attribute='SD')}}</b></td><td><b>{{s.rows|sum(attribute='LD')}}</b></td><td><b>{{s.rows|sum(attribute='LN')}}</b></td><td><b>{{s.rows|sum(attribute='total')}}</b></td></tr>
+</table></div></section>{% else %}<section class="panel"><p>No rota yet. <a href="/generate">Generate a draft</a> to see monthly totals.</p></section>{% endfor %}
+
+{% elif page=='Quality' %}
+<section class="hero"><div><small>QUALITY REVIEW</small><h2>Check before you act.</h2><p>Basic checks only — not a compliance certificate.</p></div><div class="symbol">✓</div></section>
+<section class="panel"><form method="get" action="/quality" class="form searchform" data-autosubmit>{{ org_selects(sel_trust, sel_dept) }}</form></section>
+{% for rep in reports %}<section class="panel"><h3>{{rep.label}}</h3>
+<h4>Findings</h4><ul>{% for i in rep.issues %}<li>{{i}}</li>{% endfor %}</ul>
+<h4>Fairness of shifts between doctors</h4><p class="muted">Lowest and highest number of shifts per doctor within each group. A small spread means the load is shared evenly; part-time (FTE) doctors and leave naturally work fewer shifts.</p>
+<div class="tablewrap"><table><tr><th>Group</th><th>Shift type</th><th>Lowest</th><th>Highest</th><th>Spread</th></tr>
+{% for f in rep.fairness %}<tr><td>{{f.group}}</td><td>{{f.metric}}</td><td>{{f.min}}</td><td>{{f.max}}</td><td><b>{{f.spread}}</b></td></tr>{% endfor %}</table></div></section>
+{% else %}<section class="panel"><p>No rota to check yet. <a href="/generate">Generate a draft</a> first.</p></section>{% endfor %}
+<section class="panel"><h3>Known gaps</h3><p>The exact rolling limit of 3 LD in any 5 working shifts, all LD-to-SD transitions, prior-rota continuity, swaps, locked shifts and an audit trail are not fully implemented. Do not use this as the sole basis for clinical staffing decisions.</p></section>
+{% endif %}
+<footer>Rule-driven planning prototype · Storage: {{storage}} · Governance review required</footer></main>
+<script>
+document.querySelectorAll('form').forEach(function(f){
+  var t=f.querySelector('select[name=trust]'), d=f.querySelector('select[name=dept]');
+  var auto=f.hasAttribute('data-autosubmit');
+  function sync(){ if(!t||!d) return;
+    Array.prototype.forEach.call(d.options,function(o){ var ok=!t.value||!o.dataset.trust||o.dataset.trust===t.value; o.hidden=!ok; o.disabled=!ok; });
+    if(d.selectedOptions[0] && d.selectedOptions[0].disabled) d.value=''; }
+  sync();
+  if(t&&d) t.addEventListener('change',function(){ d.value=''; sync(); if(auto) f.submit(); });
+  if(auto) f.querySelectorAll('select').forEach(function(s){ if(s!==t) s.addEventListener('change',function(){ f.submit(); }); });
+});
+</script></body></html>
