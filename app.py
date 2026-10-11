@@ -22,7 +22,7 @@ app = Flask(__name__, template_folder='app/templates', static_folder='app/static
 app.secret_key = os.environ.get('SECRET_KEY', 'change-this-prototype-secret')
 
 SHIFT_NAMES = {'SD': 'Short Day', 'LD': 'Long Day', 'LN': 'Long Night'}
-MAX_RESULTS = 500
+MAX_RESULTS = 1000
 
 
 # ---------- database helpers (work for both SQLite and PostgreSQL) ----------
@@ -121,48 +121,73 @@ def month_label(m):
     return date(int(y), int(mo), 1).strftime('%B %Y')
 
 
-# ---------- search ----------
-def search(q, dfrom, dto, doctors, leaves, rota):
-    q = (q or '').strip().lower()
-    dfrom, dto = (dfrom or '').strip(), (dto or '').strip()
+# ---------- rota filters / search ----------
+def rota_view(args, doctors, leaves, rota):
+    """Filters the saved rota by free text, doctor, group, shift and date (or date range)."""
+    q = (args.get('q') or '').strip().lower()
+    raw_from, raw_to = (args.get('date_from') or '').strip(), (args.get('date_to') or '').strip()
+    shift = (args.get('shift') or '').strip().upper()
+    group = (args.get('group') or '').strip()
+    doc = (args.get('doctor') or '').strip()
+    dfrom, dto = raw_from, raw_to
     if dfrom and not dto: dto = dfrom
     if dto and not dfrom: dfrom = dto
     if dfrom and dto and dto < dfrom: dfrom, dto = dto, dfrom
-    active = bool(q or dfrom)
-    res = {'active': active, 'rota': [], 'doctors': [], 'leaves': [], 'on_leave': [], 'truncated': False,
-           'q': q, 'dfrom': dfrom, 'dto': dto}
-    if not active: return res
+    res = {'q': q, 'dfrom': raw_from, 'dto': raw_to, 'shift': shift, 'group': group, 'doctor': doc,
+           'filtered': bool(q or dfrom or shift or group or doc),
+           'rota': [], 'rota_total': 0, 'truncated': False, 'doctors': [], 'leaves': [], 'on_leave': []}
 
     def hit(*vals): return (not q) or any(q in str(v).lower() for v in vals)
 
-    rota_hits = []
+    rows = []
     for r in rota:
         if dfrom and not (dfrom <= r['rota_date'] <= dto): continue
+        if shift and r['shift_code'] != shift: continue
+        if group and r['rota_group'] != group: continue
+        if doc and str(r['doctor_id']) != doc: continue
         if hit(r['rota_date'], r['shift_code'], SHIFT_NAMES.get(r['shift_code'], ''), r['name'], r['rota_group']):
-            rota_hits.append(r)
-    res['truncated'] = len(rota_hits) > MAX_RESULTS
-    res['rota'] = rota_hits[:MAX_RESULTS]
-    res['rota_total'] = len(rota_hits)
+            rows.append(r)
+    res['rota_total'] = len(rows)
+    res['truncated'] = len(rows) > MAX_RESULTS
+    res['rota'] = rows[:MAX_RESULTS]
 
-    shift_totals = {}
-    for r in rota:
-        t = shift_totals.setdefault(r['doctor_id'], {'SD': 0, 'LD': 0, 'LN': 0})
-        if r['shift_code'] in t: t[r['shift_code']] += 1
-    leave_counts = {}
-    for l in leaves: leave_counts[l['doctor_id']] = leave_counts.get(l['doctor_id'], 0) + 1
-    if q:
+    if q:  # doctor details
+        totals = {}
+        for r in rota:
+            t = totals.setdefault(r['doctor_id'], {'SD': 0, 'LD': 0, 'LN': 0})
+            if r['shift_code'] in t: t[r['shift_code']] += 1
+        lcount = {}
+        for l in leaves: lcount[l['doctor_id']] = lcount.get(l['doctor_id'], 0) + 1
         for d in doctors:
             if hit(d['name'], d['designation'], d['rota_group'], d['status'], d['fte'], d['last_working_date']):
-                t = shift_totals.get(d['id'], {'SD': 0, 'LD': 0, 'LN': 0})
-                res['doctors'].append({**d, **t, 'leave_entries': leave_counts.get(d['id'], 0)})
-
-    for l in leaves:
-        if dfrom and not (l['start_date'] <= dto and l['end_date'] >= dfrom): continue
-        if hit(l['name'], l['leave_type'], l['start_date'], l['end_date'], 'leave'):
-            res['leaves'].append(l)
+                t = totals.get(d['id'], {'SD': 0, 'LD': 0, 'LN': 0})
+                res['doctors'].append({**d, **t, 'leave_entries': lcount.get(d['id'], 0)})
+    if q or dfrom:  # leave entries
+        for l in leaves:
+            if dfrom and not (l['start_date'] <= dto and l['end_date'] >= dfrom): continue
+            if hit(l['name'], l['leave_type'], l['start_date'], l['end_date'], 'leave'):
+                res['leaves'].append(l)
     if dfrom:
         res['on_leave'] = sorted({l['name'] for l in leaves if l['start_date'] <= dto and l['end_date'] >= dfrom})
     return res
+
+
+# ---------- dashboard charts ----------
+def shift_charts(doctors, rota, month=''):
+    counts = {}
+    for r in rota:
+        if month and r['rota_date'][:7] != month: continue
+        c = counts.setdefault(r['doctor_id'], {'SD': 0, 'LD': 0, 'LN': 0})
+        if r['shift_code'] in c: c[r['shift_code']] += 1
+    rows = [d for d in doctors if d['status'] == 'Active' or d['id'] in counts]
+    rows.sort(key=lambda d: (d['rota_group'], d['name']))
+    charts = []
+    for code in ('SD', 'LD', 'LN'):
+        items = [{'name': d['name'], 'group': d['rota_group'], 'count': counts.get(d['id'], {}).get(code, 0)} for d in rows]
+        mx = max([i['count'] for i in items] or [0]) or 1
+        for i in items: i['pct'] = round(i['count'] * 100 / mx)
+        charts.append({'code': code, 'title': SHIFT_NAMES[code] + 's', 'total': sum(i['count'] for i in items), 'bars': items})
+    return charts
 
 
 def ctx(page, **extra):
@@ -177,7 +202,13 @@ init()
 
 
 @app.route('/')
-def home(): return render_template('page.html', **ctx('Dashboard'))
+def home():
+    c = ctx('Dashboard')
+    month = request.args.get('month', '')
+    c['charts'] = shift_charts(c['doctors'], c['rota'], month)
+    c['months'] = [{'key': k, 'label': month_label(k)} for k in sorted({r['rota_date'][:7] for r in c['rota']})]
+    c['selected_month'] = month
+    return render_template('page.html', **c)
 
 
 @app.route('/doctors', methods=['GET', 'POST'])
@@ -190,6 +221,34 @@ def doctors():
         flash('Doctor added.')
         return redirect(url_for('doctors'))
     return render_template('page.html', **ctx('Doctors'))
+
+
+@app.route('/doctors/<int:doc_id>/archive', methods=['POST'])
+def archive_doctor(doc_id):
+    rows = query('SELECT name,status FROM doctors WHERE id=?', (doc_id,))
+    if rows:
+        new = 'Inactive' if rows[0]['status'] == 'Active' else 'Active'
+        execute([('UPDATE doctors SET status=? WHERE id=?', (new, doc_id))])
+        flash(f"{rows[0]['name']} archived (kept in history, excluded from new rotas)." if new == 'Inactive'
+              else f"{rows[0]['name']} reactivated.")
+    return redirect(url_for('doctors'))
+
+
+@app.route('/doctors/<int:doc_id>/delete', methods=['POST'])
+def delete_doctor(doc_id):
+    rows = query('SELECT name FROM doctors WHERE id=?', (doc_id,))
+    if rows:
+        execute([('DELETE FROM rota WHERE doctor_id=?', (doc_id,)), ('DELETE FROM leaves WHERE doctor_id=?', (doc_id,)),
+                 ('DELETE FROM doctors WHERE id=?', (doc_id,))])
+        flash(f"{rows[0]['name']} deleted, with their leave and rota assignments. Regenerate the rota to refill cover.")
+    return redirect(url_for('doctors'))
+
+
+@app.route('/leave/<int:leave_id>/delete', methods=['POST'])
+def delete_leave(leave_id):
+    execute([('DELETE FROM leaves WHERE id=?', (leave_id,))])
+    flash('Leave entry removed.')
+    return redirect(url_for('leave'))
 
 
 @app.route('/leave', methods=['GET', 'POST'])
@@ -223,18 +282,20 @@ def generate():
                     ('INSERT INTO rota(rota_date,doctor_id,shift_code) VALUES(?,?,?)',
                      [(x['date'], x['doctor_id'], x['shift']) for x in out['assignments']], True)])
                 flash(f"Generated {len(out['assignments'])} assignments. Review Quality; prototype only.")
-                return redirect(url_for('rota'))
+                return redirect(url_for('generate') + '#rota-details')
         except Exception as e:
             flash(f'Generation failed: {e}')
         return redirect(url_for('generate'))
     c = ctx('Generate')
-    c['result'] = search(request.args.get('q'), request.args.get('date_from'), request.args.get('date_to'),
-                         c['doctors'], c['leaves'], c['rota'])
+    c['result'] = rota_view(request.args, c['doctors'], c['leaves'], c['rota'])
     return render_template('page.html', **c)
 
 
 @app.route('/rota')
-def rota(): return render_template('page.html', **ctx('Rota'))
+def rota():
+    c = ctx('Rota')
+    c['result'] = rota_view(request.args, c['doctors'], c['leaves'], c['rota'])
+    return render_template('page.html', **c)
 
 
 @app.route('/summary')
